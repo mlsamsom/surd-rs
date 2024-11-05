@@ -1,0 +1,11 @@
+[package]
+name = "surd-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ndarray = { version = "0.16.1", features = ["rayon", "serde"] }
+num-traits = "0.2.19"
+
+[dev-dependencies]
+approx = "0.5.1"
