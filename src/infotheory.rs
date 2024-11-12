@@ -1,6 +1,51 @@
-use ndarray::{Array1, ArrayD};
+use std::{
+    fmt::Debug,
+    ops::{AddAssign, DivAssign},
+};
 
-pub use crate::error::Result;
+use ndarray::{Array1, ArrayD};
+use ndarray_stats::QuantileExt;
+
+pub use crate::error::{Error, Result};
+
+/// Compute the normalized empirical probability distribution
+pub fn normalized_histogram<T>(p: &Array1<T>, bins: usize) -> Result<(Array1<T>, Array1<T>)>
+where
+    T: num_traits::Float,
+    T: AddAssign,
+    T: DivAssign,
+    T: Debug,
+    T: ndarray::ScalarOperand,
+{
+    let min = p.min().expect("Cannot find min of input array");
+    let max = p.max().unwrap();
+    let bins_float = T::from(bins).expect("Conversion from usize to T failed");
+
+    let bin_width = (*max - *min) / bins_float;
+
+    let mut histogram: Array1<T> = Array1::zeros(bins);
+    let mut edges: Array1<T> = Array1::zeros(bins);
+    edges[0] = *min;
+    for i in 1..bins {
+        edges[i] = edges[i - 1] + bin_width;
+    }
+
+    for &v in p.iter() {
+        let bin_index = (((v - *min) / bin_width).floor())
+            .to_usize()
+            .expect("Conversion from T to usize failed");
+
+        if bin_index < bins {
+            histogram[bin_index] += T::from(1).expect("Conversion to T failed");
+        } else {
+            histogram[bins - 1] += T::from(1).expect("Conversion to T failed");
+        }
+    }
+    histogram += T::from(1e-14).expect("Failed to convert float to T");
+    histogram /= histogram.sum();
+
+    Ok((histogram, edges))
+}
 
 /// Compute the logarithm in base 2 avoiding singularities
 ///
@@ -38,10 +83,23 @@ where
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Result;
     use assert_approx_eq::assert_approx_eq;
     use ndarray::{arr1, arr2, Array};
 
     use super::*;
+
+    #[test]
+    fn test_histogram() -> Result<()> {
+        let a = arr1(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+
+        let r = normalized_histogram(&a, 3)?;
+        //assert!(r.0 == arr1(&[0.375, 0.25, 0.375]));
+        assert_approx_eq!(r.0[0] as f64, 0.375f64, 1e-3f64);
+        assert_approx_eq!(r.0[1] as f64, 0.25f64, 1e-3f64);
+        assert_approx_eq!(r.0[2] as f64, 0.375f64, 1e-3f64);
+        Ok(())
+    }
 
     #[test]
     fn test_log_ns() {

@@ -5,8 +5,10 @@ edition = "2021"
 
 [dependencies]
 ndarray = { version = "0.16.1", features = ["rayon", "serde"] }
+ndarray-stats = "0.6.0"
 num-traits = "0.2.19"
 
 [dev-dependencies]
+anyhow = "1.0.93"
 approx = "0.5.1"
 assert_approx_eq = "1.1.0"
