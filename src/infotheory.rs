@@ -4,10 +4,11 @@ use std::{
     ops::{AddAssign, DivAssign},
 };
 
-use ndarray::{Array, Array1, ArrayD, Axis};
+use ndarray::{Array1, ArrayD};
 use ndarray_stats::QuantileExt;
 
 pub use crate::error::{Error, Result};
+pub use crate::numpy::sum_axes;
 
 /// Compute the normalized empirical probability distribution for a 1D array of data
 pub fn normalized_histogram<T>(p: &Array1<T>, bins: usize) -> Result<(Array1<T>, Array1<T>)>
@@ -100,13 +101,10 @@ where
     let s1: HashSet<usize> = (0..p.ndim()).collect();
     let s2: HashSet<usize> = indices.into_iter().collect();
 
-    let mut excl_indices = s1.difference(&s2).collect::<Vec<&usize>>();
-    excl_indices.sort_unstable();
+    let excl_indices = s1.difference(&s2).collect::<Vec<&usize>>();
+    let excl_indices: Vec<usize> = excl_indices.iter().map(|&&x| x).collect();
 
-    let mut marg_dist = p.clone();
-    for (i, axis) in excl_indices.into_iter().enumerate() {
-        marg_dist = marg_dist.sum_axis(Axis(*axis - i));
-    }
+    let marg_dist = sum_axes(p, excl_indices);
 
     entropy_any_dim(&marg_dist)
 }
