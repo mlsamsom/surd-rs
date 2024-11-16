@@ -323,6 +323,7 @@ dependencies = [
  "anyhow",
  "approx",
  "assert_approx_eq",
+ "itertools",
  "ndarray",
  "ndarray-stats",
  "num-traits",
