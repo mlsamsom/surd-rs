@@ -1,4 +1,4 @@
-use ndarray::{ArrayD, Axis};
+use ndarray::{s, Array, Array1, ArrayD, Axis};
 
 pub fn sum_axes<T>(p: &ArrayD<T>, mut inds: Vec<usize>) -> ArrayD<T>
 where
@@ -42,7 +42,7 @@ where
     squeezed
 }
 
-pub fn argsort<T>(v: &[T]) -> Vec<usize>
+pub fn argsort1d<T>(v: &Array1<T>) -> Vec<usize>
 where
     T: PartialOrd,
 {
@@ -61,6 +61,22 @@ pub fn indices_where<T>(
         .into_iter()
         .enumerate()
         .filter_map(move |(index, elt)| where_(elt).then_some(index))
+}
+
+pub fn apply_mask<T>(arr: &Array1<T>, mask: &Array1<bool>) -> Array1<T>
+where
+    T: Copy,
+{
+    Array::from_iter(arr.iter().zip(mask).filter(|&(_, m)| *m).map(|(d, _)| *d))
+}
+
+pub fn diff1d<T>(arr: &Array1<T>) -> Array1<T>
+where
+    T: num_traits::Float + num_traits::Num,
+{
+    let s1 = arr.slice(s![1..]);
+    let s2 = arr.slice(s![..-1]);
+    &s1 - &s2
 }
 
 #[cfg(test)]
@@ -105,7 +121,7 @@ mod tests {
     #[test]
     fn test_argsort() {
         let p = array![2., 2., 5., 67., 4.];
-        let p_sort = argsort(&p.to_vec());
+        let p_sort = argsort1d(&p);
         assert!(p_sort == vec![0, 1, 4, 2, 3]);
     }
 
@@ -118,5 +134,20 @@ mod tests {
         }
 
         assert!(r == vec![1, 5]);
+    }
+
+    #[test]
+    fn test_apply_mask() {
+        let v = array![3, 42, 3, 5, 7, 30];
+        let mask = array![true, false, false, true, false, true];
+        let a = apply_mask(&v, &mask);
+        assert!(a == array![3, 5, 30]);
+    }
+
+    #[test]
+    fn test_diff() {
+        let v = array![1.0, 2.0, 4.0, 5.0];
+        let d = diff1d(&v);
+        assert!(d == array![1.0, 2.0, 1.0]);
     }
 }

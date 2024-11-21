@@ -10,8 +10,9 @@ use std::{
 
 use infotheory::{conditional_entropy, joint_entropy_any_dim, log_ns, sum_axes};
 use itertools::Itertools;
-use ndarray::{Array1, ArrayD};
-use numpy::{argsort, indices_where, squeeze, sum_axes_keepdims};
+use ndarray::{arr1, concatenate, Array, Array1, ArrayD};
+use ndarray_slice::Slice1Ext;
+use numpy::{apply_mask, argsort1d, diff1d, indices_where, squeeze, sum_axes_keepdims};
 
 pub use crate::error::{Error, Result};
 
@@ -31,6 +32,21 @@ where
     Ok(())
 }
 
+pub struct InfoResult<T> {
+    pub variables: Vec<usize>,
+    pub value: T,
+}
+
+pub struct SurdResult<T>
+where
+    T: num_traits::Float,
+{
+    pub information_redundancy: Vec<InfoResult<T>>,
+    pub information_synergy: Vec<InfoResult<T>>,
+    pub mutual_information: Vec<InfoResult<T>>,
+    pub information_leak: T,
+}
+
 /// Decompose the mutual information between a target variable and a set
 /// of agent variables into three terms: Redundancy (I_R), Synergy (I_S),
 /// and Unique (I_U) information.
@@ -41,11 +57,12 @@ where
 /// This decomposition results in terms related to redundancy
 /// (overlapping information), synergy (information that arises only when
 /// considering multiple variables together), and unique information.
-pub fn surd<T>(p: &ArrayD<T>) -> Result<()>
+pub fn surd<T>(p: &ArrayD<T>) -> Result<SurdResult<T>>
 where
     T: num_traits::Float,
     T: AddAssign,
     T: DivAssign,
+    T: PartialOrd,
     T: Debug,
     T: ndarray::ScalarOperand,
 {
@@ -63,16 +80,16 @@ where
     // Compute the marginal distribution of the target
     println!("{:?}", inds);
     let p_s = sum_axes_keepdims(p, inds.clone());
-    let mut combs: Vec<Vec<&usize>> = Vec::new();
+    let mut combs: Vec<Vec<usize>> = Vec::new();
 
     // specific mutual information
-    let mut i_specific: HashMap<Vec<&usize>, Array1<T>> = HashMap::new();
+    let mut i_specific: HashMap<Vec<usize>, Array1<T>> = HashMap::new();
 
-    for &i in inds.iter() {
-        for j in inds.iter().combinations(i) {
+    for i in &inds {
+        for j in inds.clone().into_iter().combinations(*i) {
             combs.push(j.clone());
             let ind_set: HashSet<usize> = inds.clone().into_iter().collect();
-            let j_set: HashSet<usize> = j.clone().into_iter().copied().collect();
+            let j_set: HashSet<usize> = j.clone().into_iter().collect();
             let noj = ind_set.difference(&j_set).collect::<Vec<&usize>>();
             let noj: Vec<usize> = noj.iter().map(|&&x| x).collect();
 
@@ -86,10 +103,7 @@ where
             let p_s_a = &p_as / &p_a;
             let log_p_s_a = p_s_a.mapv(log_ns);
             let log_p_s = p_s.mapv(log_ns);
-            let info = sum_axes(
-                &(p_a_s * (log_p_s_a - log_p_s)),
-                j.iter().map(|&&x| x).collect(),
-            );
+            let info = sum_axes(&(p_a_s * (log_p_s_a - log_p_s)), j.to_vec());
             i_specific.insert(
                 j,
                 info.to_shape(info.len())
@@ -100,14 +114,15 @@ where
     }
 
     // Compute mutual info for each combination
-    let mut mi: HashMap<Vec<&usize>, T> = HashMap::new();
+    let mut mi: HashMap<Vec<usize>, T> = HashMap::new();
+    let p_s_squeezed = squeeze(&p_s);
+    let p_s_squeezed_sum = p_s_squeezed.sum();
     for k in i_specific.keys() {
-        let p_s_squeezed = squeeze(&p_s).sum();
-        mi.insert(k.to_vec(), p_s_squeezed);
+        mi.insert(k.to_vec(), p_s_squeezed_sum);
     }
 
     // Redundancy term
-    let mut i_redundancy: HashMap<Vec<&usize>, T> = HashMap::new();
+    let mut i_redundancy: HashMap<Vec<usize>, T> = HashMap::new();
     for cc in &combs {
         i_redundancy.insert(
             cc.to_vec(),
@@ -116,7 +131,7 @@ where
     }
 
     // Synergy term
-    let mut i_synergy: HashMap<Vec<&usize>, T> = HashMap::new();
+    let mut i_synergy: HashMap<Vec<usize>, T> = HashMap::new();
     for cc in &combs[n_agent_vars..] {
         i_synergy.insert(
             cc.to_vec(),
@@ -131,31 +146,111 @@ where
         for ii in i_specific.values() {
             i1.push(ii[t]);
         }
+        let mut i1 = Array::from_vec(i1);
 
         // Sort specific mutual information
-        let i1_argsort = argsort(&i1);
+        let i1_argsort = argsort1d(&i1);
         let mut lab = Vec::new();
         for i_ in &i1_argsort {
             lab.push(combs[*i_].clone());
         }
 
         let mut lens = Vec::new();
-        for l in lab {
+        for l in &lab {
             lens.push(l.len());
         }
 
         // Update specific mutual information based on existing maximum values
-        let i1_sorted: Vec<T> = i1_argsort.into_iter().map(|i| i1[i]).collect();
-
+        i1.sort_by(|a, b| a.partial_cmp(b).expect("Unable to compare during sort"));
         for l in 1..*lens.iter().max().unwrap() {
-            let mut inds_l2: Vec<usize> = Vec::new();
-            for x in indices_where(&lens, |&v| v == l + 1) {
-                inds_l2.push(x);
+            let inds_l2 = Array::from_iter(indices_where(&lens, |&v| v == l + 1));
+
+            let mask: Array1<bool> = Array::from_iter(lens.iter().map(|x| *x == l));
+            let il1max = apply_mask(&i1, &mask)
+                .into_iter()
+                .max_by(|a, b| a.partial_cmp(b).expect("Failed to compare in max"))
+                .expect("Unable to find max of il");
+
+            let i1_inds_l2: Vec<T> = inds_l2.iter().map(|i| i1[*i]).collect();
+            let mask: Array1<bool> = Array::from_iter(i1_inds_l2.iter().map(|x| *x < il1max));
+            let inds_ = apply_mask(&inds_l2, &mask);
+            for i in inds_ {
+                i1[i] = T::from(0.0).expect("Failed to create generic 0.0");
+            }
+        }
+
+        // Recompute sorting of updated specific mutual information values
+        let i1_argsort = argsort1d(&i1);
+        let mut lab2 = Vec::new();
+        for i in i1_argsort {
+            lab2.push(&lab[i]);
+        }
+
+        // Compute differences in sorted specific mutual information values
+        i1.sort_by(|a, b| a.partial_cmp(b).expect("Unable to compare during sort"));
+        let d_i = concatenate(
+            ndarray::Axis(0),
+            &[
+                arr1(&[T::from(0.0).expect("Failed to create generic 0.0")]).view(),
+                diff1d(&i1).view(),
+            ],
+        )
+        .expect("Failed to prepend [0]");
+        let red_vars: Vec<usize> = inds.clone();
+
+        // Distribute mutual information to redundancy and synergy terms
+
+        for (i, ll) in lab.into_iter().enumerate() {
+            let info = d_i[i] * p_s_squeezed[t];
+            if ll.len() == 1 {
+                i_redundancy.insert(
+                    red_vars.clone(),
+                    *i_redundancy
+                        .get(&red_vars)
+                        .expect("Value in i_redundancy does not exist")
+                        + info,
+                );
+            } else {
+                i_synergy.insert(
+                    ll.clone(),
+                    *i_synergy
+                        .get(&ll)
+                        .expect("Value in i_synergy does not exist")
+                        + info,
+                );
             }
         }
     }
 
-    Ok(())
+    // package for output
+    let information_redundancy: Vec<InfoResult<T>> = i_redundancy
+        .into_iter()
+        .map(|(variables, value)| InfoResult {
+            variables: variables.clone(),
+            value,
+        })
+        .collect();
+    let information_synergy: Vec<InfoResult<T>> = i_synergy
+        .into_iter()
+        .map(|(variables, value)| InfoResult {
+            variables: variables.clone(),
+            value,
+        })
+        .collect();
+    let mutual_information: Vec<InfoResult<T>> = mi
+        .into_iter()
+        .map(|(variables, value)| InfoResult {
+            variables: variables.clone(),
+            value,
+        })
+        .collect();
+
+    Ok(SurdResult {
+        information_redundancy,
+        information_synergy,
+        mutual_information,
+        information_leak: info_leak,
+    })
 }
 
 #[cfg(test)]
