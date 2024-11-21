@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 itertools = "0.13.0"
 ndarray = { version = "0.16.1", features = ["rayon", "serde"] }
+ndarray-slice = "0.4.0"
 ndarray-stats = "0.6.0"
 num-traits = "0.2.19"
 
