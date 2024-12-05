@@ -1,4 +1,5 @@
-use ndarray::{s, Array, Array1, ArrayD, Axis};
+use ndarray::{s, Array, Array1, Array2, ArrayD, Axis, IxDyn};
+use ndarray_stats::QuantileExt;
 
 pub fn sum_axes<T>(p: &ArrayD<T>, mut inds: Vec<usize>) -> ArrayD<T>
 where
@@ -79,6 +80,52 @@ where
     &s1 - &s2
 }
 
+pub fn histogramdd<T>(data: &Array2<T>, bins: &[usize]) -> (ArrayD<usize>, Vec<Vec<T>>)
+where
+    T: num_traits::Float,
+{
+    let ndim = data.shape()[1];
+    assert_eq!(
+        ndim,
+        bins.len(),
+        "The number of dimensions must match the number of bins"
+    );
+
+    // Compute range for each dimension
+    let mut edges: Vec<Vec<T>> = Vec::new();
+    for (dim, &bin) in bins.iter().enumerate() {
+        let col = data.slice(s![.., dim]);
+        let min = col.min().expect("Unable to find min in col");
+        let max = col.max().expect("Unable to find max in col");
+        let step = (*max - *min) / T::from(bin).unwrap();
+        edges.push(
+            (0..(bins[dim] + 1))
+                .map(|i| *min + T::from(i).unwrap() * step)
+                .collect(),
+        );
+    }
+
+    // Bin the data points
+    let mut histogram = ArrayD::<usize>::zeros(IxDyn(bins));
+    for row in data.outer_iter() {
+        let mut index = Vec::with_capacity(ndim);
+        for (dim, &val) in row.iter().enumerate() {
+            let bin_edges = &edges[dim];
+            let bin = match bin_edges.binary_search_by(|edge| {
+                edge.partial_cmp(&val)
+                    .expect("Unable to perform compare to find edge for value")
+            }) {
+                Ok(i) => i.min(bins[dim] - 1),
+                Err(i) => i.saturating_sub(1).min(bins[dim] - 1),
+            };
+            index.push(bin);
+        }
+        *histogram.get_mut(IxDyn(&index)).unwrap() += 1;
+    }
+
+    (histogram, edges)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,5 +196,24 @@ mod tests {
         let v = array![1.0, 2.0, 4.0, 5.0];
         let d = diff1d(&v);
         assert!(d == array![1.0, 2.0, 1.0]);
+    }
+
+    #[test]
+    fn test_histogramdd() {
+        let data = Array2::from_shape_vec(
+            (5, 2),
+            vec![1.0, 2.0, 1.5, 2.5, 3.0, 3.5, 2.0, 1.0, 3.0, 2.0],
+        )
+        .unwrap();
+
+        let bins = vec![4, 4];
+
+        let (hist, edges) = histogramdd(&data, &bins);
+
+        let answer: ArrayD<usize> =
+            array![[0, 1, 0, 0,], [0, 0, 1, 0,], [1, 0, 0, 0,], [0, 1, 0, 1]].into_dyn();
+        assert!(hist == answer);
+        assert!(edges[0] == vec![1.0, 1.5, 2.0, 2.5, 3.0]);
+        assert!(edges[1] == vec![1.0, 1.625, 2.25, 2.875, 3.5]);
     }
 }
