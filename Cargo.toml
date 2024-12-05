@@ -9,6 +9,7 @@ ndarray = { version = "0.16.1", features = ["rayon", "serde"] }
 ndarray-slice = "0.4.0"
 ndarray-stats = "0.6.0"
 num-traits = "0.2.19"
+ndarray-rand = "0.15.0"
 
 [dev-dependencies]
 anyhow = "1.0.93"
