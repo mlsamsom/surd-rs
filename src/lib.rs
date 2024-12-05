@@ -1,3 +1,4 @@
+pub mod _dev_utils;
 pub mod error;
 pub mod infotheory;
 pub mod numpy;
@@ -10,7 +11,7 @@ use std::{
 
 use infotheory::{conditional_entropy, joint_entropy_any_dim, log_ns, sum_axes};
 use itertools::Itertools;
-use ndarray::{arr1, concatenate, Array, Array1, ArrayD};
+use ndarray::{arr1, concatenate, s, stack, Array, Array1, ArrayD, Axis};
 use ndarray_slice::Slice1Ext;
 use numpy::{apply_mask, argsort1d, diff1d, indices_where, squeeze, sum_axes_keepdims};
 
@@ -78,7 +79,6 @@ where
     let info_leak = h / h_c;
 
     // Compute the marginal distribution of the target
-    println!("{:?}", inds);
     let p_s = sum_axes_keepdims(p, inds.clone());
     let mut combs: Vec<Vec<usize>> = Vec::new();
 
@@ -251,6 +251,20 @@ where
         mutual_information,
         information_leak: info_leak,
     })
+}
+
+fn run_surd<T>(p: &ArrayD<T>, nlag: usize, nbins: usize)
+where
+    T: num_traits::Float,
+{
+    let nvars: usize = p.shape()[0];
+
+    for i in 0..nvars {
+        // Organize data (0 target variable, 1: agent variables)
+        let r_slice = p.slice(s![i, 1..]).to_owned();
+        let c_slice = p.slice(s![.., ..-1]).to_owned();
+        let y = stack![Axis(0), r_slice.insert_axis(Axis(0)), c_slice];
+    }
 }
 
 #[cfg(test)]
