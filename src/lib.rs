@@ -11,9 +11,11 @@ use std::{
 
 use infotheory::{conditional_entropy, joint_entropy_any_dim, log_ns, sum_axes};
 use itertools::Itertools;
-use ndarray::{arr1, concatenate, s, stack, Array, Array1, ArrayD, Axis};
+use ndarray::{arr1, concatenate, s, stack, Array, Array1, Array2, ArrayD, Axis};
 use ndarray_slice::Slice1Ext;
-use numpy::{apply_mask, argsort1d, diff1d, indices_where, squeeze, sum_axes_keepdims};
+use numpy::{
+    apply_mask, argsort1d, diff1d, histogramdd, indices_where, squeeze, sum_axes_keepdims,
+};
 
 pub use crate::error::{Error, Result};
 
@@ -253,7 +255,7 @@ where
     })
 }
 
-fn run_surd<T>(p: &ArrayD<T>, nlag: usize, nbins: usize)
+fn run_surd<T>(p: &ArrayD<T>, nlag: usize, nbins: &[usize])
 where
     T: num_traits::Float,
 {
@@ -261,9 +263,14 @@ where
 
     for i in 0..nvars {
         // Organize data (0 target variable, 1: agent variables)
-        let r_slice = p.slice(s![i, 1..]).to_owned();
+        let r_slice = p.slice(s![i, 1..]).insert_axis(Axis(0)).to_owned();
         let c_slice = p.slice(s![.., ..-1]).to_owned();
-        let y = stack![Axis(0), r_slice.insert_axis(Axis(0)), c_slice];
+        let y = concatenate(Axis(0), &[r_slice.view(), c_slice.view()])
+            .expect("Failed to stack axes, probably malshaped somehow");
+
+        // Convert input data to empirical probability distribution (unnormalized)
+
+        let (hist, _) = histogramdd(&y, nbins);
     }
 }
 
@@ -291,5 +298,10 @@ mod tests {
         let mut p: Array<f64, _> = Array::ones((5, 5, 5, 5, 5, 5)).into_dyn();
         let _ = clean_probability_dist(&mut p);
         let _ = surd(&p);
+    }
+
+    #[test]
+    fn test_run() {
+        todo!()
     }
 }

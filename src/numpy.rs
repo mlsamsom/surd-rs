@@ -129,7 +129,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::{array, Array};
+    use ndarray::{array, concatenate, Array};
 
     #[test]
     fn test_sum_axes() {
@@ -196,6 +196,17 @@ mod tests {
         let v = array![1.0, 2.0, 4.0, 5.0];
         let d = diff1d(&v);
         assert!(d == array![1.0, 2.0, 1.0]);
+    }
+
+    #[test]
+    fn test_vstack() {
+        let x = array![[1, 2, 3, 4, 5], [1, 2, 3, 4, 5], [1, 2, 3, 4, 5]];
+        let y_corr = array![[2, 3, 4, 5], [1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4]];
+        let r_slice = x.slice(s![0, 1..]).insert_axis(Axis(0)).to_owned();
+        let c_slice = x.slice(s![.., ..-1]).to_owned();
+        let y = concatenate(Axis(0), &[r_slice.view(), c_slice.view()]).unwrap();
+
+        assert!(y == y_corr);
     }
 
     #[test]
