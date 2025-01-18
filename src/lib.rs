@@ -11,7 +11,7 @@ use std::{
 
 use infotheory::{conditional_entropy, joint_entropy_any_dim, log_ns, sum_axes};
 use itertools::Itertools;
-use ndarray::{arr1, concatenate, s, stack, Array, Array1, Array2, ArrayD, Axis};
+use ndarray::{arr1, concatenate, s, stack, Array, Array1, Array2, ArrayD, Axis, ScalarOperand};
 use ndarray_slice::Slice1Ext;
 use numpy::{
     apply_mask, argsort1d, diff1d, histogramdd, indices_where, squeeze, sum_axes_keepdims,
@@ -255,22 +255,28 @@ where
     })
 }
 
-fn run_surd<T>(p: &ArrayD<T>, nlag: usize, nbins: &[usize])
+fn run_surd<T>(p: &ArrayD<T>, nlag: isize, nbins: &[usize])
 where
     T: num_traits::Float,
+    T: ScalarOperand,
+    T: Debug,
+    T: DivAssign,
+    T: AddAssign,
 {
     let nvars: usize = p.shape()[0];
 
     for i in 0..nvars {
         // Organize data (0 target variable, 1: agent variables)
-        let r_slice = p.slice(s![i, 1..]).insert_axis(Axis(0)).to_owned();
-        let c_slice = p.slice(s![.., ..-1]).to_owned();
+        let r_slice = p.slice(s![i, nlag..]).insert_axis(Axis(0)).to_owned();
+        let c_slice = p.slice(s![.., ..-nlag]).to_owned();
         let y = concatenate(Axis(0), &[r_slice.view(), c_slice.view()])
-            .expect("Failed to stack axes, probably malshaped somehow");
+            .expect("Failed to stack axes, probably misshaped somehow");
 
         // Convert input data to empirical probability distribution (unnormalized)
 
         let (hist, _) = histogramdd(&y, nbins);
+
+        let surd_result = surd(&hist);
     }
 }
 

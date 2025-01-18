@@ -1,3 +1,5 @@
+use std::ops::AddAssign;
+
 use ndarray::{s, Array, Array1, Array2, ArrayD, Axis, IxDyn};
 use ndarray_stats::QuantileExt;
 
@@ -80,9 +82,10 @@ where
     &s1 - &s2
 }
 
-pub fn histogramdd<T>(data: &Array2<T>, bins: &[usize]) -> (ArrayD<usize>, Vec<Vec<T>>)
+pub fn histogramdd<T>(data: &Array2<T>, bins: &[usize]) -> (ArrayD<T>, Vec<Vec<T>>)
 where
     T: num_traits::Float,
+    T: AddAssign,
 {
     let ndim = data.shape()[1];
     assert_eq!(
@@ -106,7 +109,7 @@ where
     }
 
     // Bin the data points
-    let mut histogram = ArrayD::<usize>::zeros(IxDyn(bins));
+    let mut histogram = ArrayD::<T>::zeros(IxDyn(bins));
     for row in data.outer_iter() {
         let mut index = Vec::with_capacity(ndim);
         for (dim, &val) in row.iter().enumerate() {
@@ -120,7 +123,7 @@ where
             };
             index.push(bin);
         }
-        *histogram.get_mut(IxDyn(&index)).unwrap() += 1;
+        *histogram.get_mut(IxDyn(&index)).unwrap() += T::from(1).unwrap();
     }
 
     (histogram, edges)
@@ -221,8 +224,13 @@ mod tests {
 
         let (hist, edges) = histogramdd(&data, &bins);
 
-        let answer: ArrayD<usize> =
-            array![[0, 1, 0, 0,], [0, 0, 1, 0,], [1, 0, 0, 0,], [0, 1, 0, 1]].into_dyn();
+        let answer: ArrayD<f64> = array![
+            [0., 1., 0., 0.,],
+            [0., 0., 1., 0.,],
+            [1., 0., 0., 0.,],
+            [0., 1., 0., 1.]
+        ]
+        .into_dyn();
         assert!(hist == answer);
         assert!(edges[0] == vec![1.0, 1.5, 2.0, 2.5, 3.0]);
         assert!(edges[1] == vec![1.0, 1.625, 2.25, 2.875, 3.5]);
